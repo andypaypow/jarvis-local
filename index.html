@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>J.A.R.V.I.S.</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/gridjs/dist/theme/mermaid.min.css">
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+<script src="https://unpkg.com/gridjs/dist/gridjs.umd.js"></script>
+<style>
+  :root {
+    --bg: #010409; --panel: rgba(6,14,24,.78); --line: rgba(64,220,255,.18);
+    --cyan: #40dcff; --cyan-dim: #1e7ea3; --amber: #ffb347; --text: #cfeaff;
+    --dim: #4d7c99; --ok: #43ffa4; --err: #ff5470;
+    --font-hud: "Rajdhani", sans-serif; --font-mono: "Share Tech Mono", monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(1100px 650px at 50% 38%, rgba(20,60,100,.35) 0%, transparent 60%),
+      var(--bg);
+    color: var(--text); font-family: var(--font-hud);
+    height: 100vh; overflow: hidden; display: flex;
+  }
+  /* hex grid + scanlines overlay */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .5;
+    background-image:
+      repeating-linear-gradient(0deg, rgba(64,220,255,.028) 0 1px, transparent 1px 3px),
+      linear-gradient(rgba(64,220,255,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(64,220,255,.045) 1px, transparent 1px);
+    background-size: 100% 3px, 52px 52px, 52px 52px;
+  }
+  /* subtle vignette */
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    box-shadow: inset 0 0 220px rgba(0,0,0,.85);
+  }
+
+  /* ------------------------------------------------ HUD chrome */
+  .corner { position: fixed; width: 46px; height: 46px; pointer-events: none; z-index: 5; }
+  .corner::before { content: ""; position: absolute; inset: 0; border: 2px solid var(--cyan); opacity: .55; }
+  .corner.tl { top: 14px; left: 14px; } .corner.tl::before { border-right: 0; border-bottom: 0; }
+  .corner.tr { top: 14px; right: 358px; } .corner.tr::before { border-left: 0; border-bottom: 0; }
+  .corner.bl { bottom: 14px; left: 14px; } .corner.bl::before { border-right: 0; border-top: 0; }
+  .corner.br { bottom: 14px; right: 358px; } .corner.br::before { border-left: 0; border-top: 0; }
+
+  #topbar {
+    position: fixed; top: 20px; left: 80px; right: 420px; z-index: 5;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--font-mono); font-size: 11px; color: var(--dim);
+    letter-spacing: .28em; text-transform: uppercase;
+  }
+  #topbar .sys { color: var(--cyan); text-shadow: 0 0 12px rgba(64,220,255,.8); }
+  #clock { color: var(--amber); }
+
+  #stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+  #orb { width: min(48vh, 440px); height: min(48vh, 440px); cursor: pointer; filter: drop-shadow(0 0 35px rgba(64,220,255,.25)); }
+  #status {
+    margin-top: 6px; letter-spacing: .45em; text-transform: uppercase;
+    font-size: 12px; font-weight: 600; color: var(--dim); font-family: var(--font-mono);
+  }
+  #status b { color: var(--cyan); font-weight: 600; text-shadow: 0 0 14px rgba(64,220,255,.9); }
+  #hint { position: absolute; bottom: 22px; font-size: 11px; color: var(--dim); font-family: var(--font-mono); letter-spacing: .2em; }
+  #transcript {
+    position: absolute; top: 54px; left: 50%; transform: translateX(-50%);
+    max-width: 68%; text-align: center; font-size: 15px; font-weight: 500;
+    color: #9fd4f5; min-height: 22px; text-shadow: 0 0 18px rgba(64,220,255,.35);
+  }
+
+  /* ------------------------------------------------ display cards (HUD holograms) */
+  #cards {
+    position: absolute; top: 96px; left: 34px; bottom: 30px; width: 330px;
+    display: flex; flex-direction: column; gap: 14px; overflow-y: auto;
+    pointer-events: none; scrollbar-width: none; z-index: 4;
+  }
+  .card {
+    pointer-events: auto; position: relative;
+    background: linear-gradient(135deg, rgba(64,220,255,.10), rgba(6,14,24,.85) 45%);
+    border: 1px solid var(--line); border-left: 3px solid var(--cyan);
+    padding: 12px 14px 12px 16px; backdrop-filter: blur(6px);
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 16px, 100% 100%, 0 100%);
+    animation: materialize .45s cubic-bezier(.2,.9,.3,1);
+    box-shadow: 0 0 24px rgba(64,220,255,.10), inset 0 0 30px rgba(64,220,255,.04);
+  }
+  @keyframes materialize {
+    0% { transform: translateX(-24px) skewX(-4deg); opacity: 0; filter: brightness(3); }
+    60% { filter: brightness(1.6); }
+    100% { transform: none; opacity: 1; filter: none; }
+  }
+  .card.warning { border-left-color: var(--amber); }
+  .card.result { border-left-color: var(--ok); }
+  .card h3 {
+    font-size: 12px; letter-spacing: .3em; text-transform: uppercase; font-weight: 700;
+    color: var(--cyan); margin-bottom: 8px; font-family: var(--font-mono);
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .card.warning h3 { color: var(--amber); } .card.result h3 { color: var(--ok); }
+  .card h3 .x { cursor: pointer; color: var(--dim); font-size: 13px; letter-spacing: 0; }
+  .card h3 .x:hover { color: var(--err); }
+  .card .body { font-size: 14px; line-height: 1.5; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+  .card .body code {
+    font-family: var(--font-mono); font-size: 12.5px; color: var(--amber);
+    background: rgba(255,179,71,.08); padding: 1px 5px; border-radius: 2px;
+  }
+  .card .body ul { margin: 4px 0 0 16px; }
+  .card.code .body { font-family: var(--font-mono); font-size: 12px; color: #9fd4f5; }
+
+  /* ------------------------------------------------ right panel */
+  #side {
+    width: 340px; border-left: 1px solid var(--line); background: var(--panel);
+    backdrop-filter: blur(10px); padding: 18px; overflow-y: auto; z-index: 6;
+  }
+  #side h2 {
+    font-size: 11px; letter-spacing: .34em; text-transform: uppercase; color: var(--cyan);
+    margin-bottom: 14px; font-family: var(--font-mono);
+    border-bottom: 1px solid var(--line); padding-bottom: 10px;
+    text-shadow: 0 0 10px rgba(64,220,255,.6);
+  }
+  .task {
+    border: 1px solid var(--line); border-left: 3px solid var(--cyan);
+    padding: 12px 14px; margin-bottom: 12px;
+    background: linear-gradient(180deg, rgba(64,220,255,.06), transparent);
+    clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+    animation: materialize .35s ease;
+  }
+  .task .t { font-size: 14px; font-weight: 600; margin-bottom: 6px; letter-spacing: .04em; }
+  .task .s { font-size: 11px; color: var(--dim); display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); }
+  .task .out { font-size: 11px; color: #a9cbe4; margin-top: 8px; max-height: 120px; overflow: auto; white-space: pre-wrap; font-family: var(--font-mono); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: blink 1s infinite alternate; }
+  .task.done { border-left-color: var(--ok); } .task.done .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); animation: none; }
+  .task.error { border-left-color: var(--err); } .task.error .dot { background: var(--err); box-shadow: 0 0 8px var(--err); animation: none; }
+  .task.cancelled { border-left-color: var(--dim); opacity: .65; } .task.cancelled .dot { background: var(--dim); box-shadow: none; animation: none; }
+  .task .cancel { margin-left: auto; cursor: pointer; color: var(--dim); }
+  .task .cancel:hover { color: var(--err); }
+  @keyframes blink { to { opacity: .2; } }
+  #empty { font-size: 12px; color: var(--dim); font-style: italic; }
+
+  /* ------------------------------------------------ report dashboard overlay */
+  #report {
+    position: fixed; inset: 60px 380px 40px 60px; z-index: 20; display: none;
+    background: rgba(5,12,22,.96); border: 1px solid var(--line);
+    border-top: 2px solid var(--cyan); backdrop-filter: blur(14px);
+    box-shadow: 0 0 60px rgba(0,0,0,.7), 0 0 30px rgba(64,220,255,.08);
+    padding: 22px 26px; overflow-y: auto; animation: materialize .35s ease;
+  }
+  #report.open { display: block; }
+  #report .rhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+  #report .rhead h2 { font-size: 16px; letter-spacing: .22em; text-transform: uppercase; color: var(--cyan); font-family: var(--font-mono); }
+  #report .rhead .x { cursor: pointer; color: var(--dim); font-size: 18px; }
+  #report .rhead .x:hover { color: var(--err); }
+  #kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .kpi { border: 1px solid var(--line); border-left: 3px solid var(--cyan); padding: 12px 14px; background: rgba(64,220,255,.04); }
+  .kpi .l { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-family: var(--font-mono); }
+  .kpi .v { font-size: 26px; font-weight: 700; color: var(--text); margin-top: 4px; }
+  .kpi .d { font-size: 12px; font-family: var(--font-mono); margin-top: 2px; color: var(--ok); }
+  .kpi .d.neg { color: var(--err); }
+  #rchart { margin-bottom: 18px; }
+  #rtable { margin-bottom: 18px; }
+  /* Grid.js dark re-skin */
+  #rtable .gridjs-wrapper, #rtable .gridjs-table { background: transparent; box-shadow: none; }
+  #rtable th.gridjs-th { background: rgba(64,220,255,.06); color: var(--cyan); border-color: var(--line); font-family: var(--font-mono); font-size: 11px; letter-spacing: .1em; }
+  #rtable td.gridjs-td, #rtable .gridjs-tr, #rtable .gridjs-tbody { background: transparent !important; color: var(--text); border-color: var(--line); font-size: 13px; }
+  #rtable .gridjs-tr:hover td { background: rgba(64,220,255,.06) !important; }
+  #rtable .gridjs-search input, #rtable .gridjs-pagination { background: transparent; color: var(--dim); border-color: var(--line); }
+  #rtable .gridjs-pagination button { background: transparent; color: var(--dim); border-color: var(--line); }
+  #rtable .gridjs-pagination button.gridjs-currentPage { background: rgba(64,220,255,.12); color: var(--cyan); }
+  #rmd { font-size: 14px; line-height: 1.6; color: var(--text); }
+  #rmd h1, #rmd h2, #rmd h3 { color: var(--cyan); margin: 12px 0 6px; font-family: var(--font-hud); }
+  #rmd table { border-collapse: collapse; margin: 8px 0; }
+  #rmd th, #rmd td { border: 1px solid var(--line); padding: 5px 10px; font-size: 13px; }
+  #rmd code { font-family: var(--font-mono); color: var(--amber); background: rgba(255,179,71,.08); padding: 1px 5px; }
+  #rmd ul, #rmd ol { margin: 6px 0 6px 20px; }
+</style>
+</head>
+<body>
+  <div class="corner tl"></div><div class="corner tr"></div>
+  <div class="corner bl"></div><div class="corner br"></div>
+  <div id="topbar">
+    <span class="sys">◈ J.A.R.V.I.S. — MARK VII</span>
+    <span id="clock">--:--:--</span>
+  </div>
+
+  <div id="stage">
+    <div id="transcript"></div>
+    <div id="cards"></div>
+    <canvas id="orb"></canvas>
+    <div id="status">clique l'orbe pour <b>initialiser</b></div>
+    <div id="hint">SYSTÈME LOCAL · VOIX NATIVE · GLM-5.3-FLASH (Z.AI) · CLAUDE CODE</div>
+  </div>
+  <div id="report">
+    <div class="rhead"><h2 id="rtitle"></h2><span class="x" onclick="document.getElementById('report').classList.remove('open')">✕</span></div>
+    <div id="kpis"></div>
+    <div id="rchart"></div>
+    <div id="rtable"></div>
+    <div id="rmd"></div>
+  </div>
+
+  <aside id="side">
+    <h2>⟢ Sessions Claude Code</h2>
+    <div id="tasks"><div id="empty">Aucune session. Demande une tâche à la voix.</div></div>
+  </aside>
+
+<script>
+"use strict";
+const BASE = location.pathname.replace(/\/+$/, "");
+const orb = document.getElementById("orb");
+
+
+async function askBrain(text, hist) {
+  const start = await fetch(BASE + "/api/chat", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, history: hist }),
+  }).then(async r => {
+    if (r.ok) return r.json();
+    const raw = await r.text();
+    let detail = raw.slice(0, 160);
+    try { detail = JSON.parse(raw).detail || detail; } catch (_) {}
+    throw new Error(`HTTP ${r.status} — ${detail}`);
+  });
+  for (let i = 0; i < 150; i++) {  // max ~5 min
+    await new Promise(r => setTimeout(r, 2000));
+    const st = await fetch(`${BASE}/api/chat/${start.id}`).then(r => {
+      if (r.ok) return r.json();
+      throw new Error(`HTTP ${r.status}`);
+    });
+    if (st.status !== "thinking") return st;
+  }
+  throw new Error("temps depasse");
+}
+
+function logNav(level, message, extra) {
+  try {
+    const body = JSON.stringify({ level, message, extra });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(BASE + "/api/log", new Blob([body], { type: "application/json" }));
+    } else {
+      fetch(BASE + "/api/log", { method: "POST", keepalive: true,
+        headers: { "Content-Type": "application/json" }, body });
+    }
+  } catch (_) {}
+}
+window.addEventListener("error", e => logNav("error", e.message, { line: e.lineno, file: e.filename }));
+logNav("info", "page chargee", { version: "buffer-v2" });
+window.addEventListener("unhandledrejection", e => logNav("error", "promise: " + e.reason));
+const ctx = orb.getContext("2d");
+const statusEl = document.getElementById("status");
+const transcriptEl = document.getElementById("transcript");
+const tasksEl = document.getElementById("tasks");
+const emptyEl = document.getElementById("empty");
+const cardsEl = document.getElementById("cards");
+
+let pc = null, dc = null, micStream = null;
+let analyserIn = null, analyserOut = null;
+let running = false;
+var boost = 0;  // énergie de la voix locale (boost pendant la synthèse)
+
+/* clock */
+setInterval(() => {
+  document.getElementById("clock").textContent = new Date().toLocaleTimeString("fr-FR");
+}, 1000);
+
+/* ---------------------------------------------------------- orb rendering (arc reactor HUD) */
+function sizeOrb() {
+  const r = orb.getBoundingClientRect();
+  orb.width = r.width * devicePixelRatio; orb.height = r.height * devicePixelRatio;
+}
+window.addEventListener("resize", sizeOrb); sizeOrb();
+
+function level(analyser) {
+  if (!analyser) return 0;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(buf);
+  let s = 0; for (const v of buf) s += v;
+  return s / buf.length / 255;
+}
+
+const TAU = Math.PI * 2;
+let t = 0;
+function draw() {
+  requestAnimationFrame(draw);
+  t += 0.016;
+  const w = orb.width, h = orb.height, cx = w / 2, cy = h / 2;
+  const dpr = devicePixelRatio;
+  ctx.clearRect(0, 0, w, h);
+  const inL = level(analyserIn), outL = level(analyserOut);
+  const energy = Math.max(inL, outL * 1.3, boost);
+  const base = Math.min(w, h) * 0.20;
+  const R = base * (1 + 0.14 * energy + 0.012 * Math.sin(t * 2.1));
+  const CYAN = "64,220,255", AMBER = "255,179,71";
+
+  // outer glow
+  let g = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 2.6);
+  g.addColorStop(0, `rgba(${CYAN},${0.16 + energy * 0.3})`);
+  g.addColorStop(1, "transparent");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 2.6, 0, TAU); ctx.fill();
+
+  // segmented outer ring (arc reactor coils)
+  const segs = 12;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(t * 0.25);
+  for (let i = 0; i < segs; i++) {
+    const a0 = (i / segs) * TAU, a1 = a0 + TAU / segs * 0.62;
+    ctx.strokeStyle = `rgba(${CYAN},${0.55 + 0.4 * Math.sin(t * 3 + i)})`;
+    ctx.lineWidth = 7 * dpr;
+    ctx.beginPath(); ctx.arc(0, 0, R * 1.55, a0, a1); ctx.stroke();
+  }
+  ctx.restore();
+
+  // tick ring (graduations)
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(-t * 0.1);
+  for (let i = 0; i < 60; i++) {
+    const a = (i / 60) * TAU, big = i % 5 === 0;
+    ctx.strokeStyle = `rgba(${big ? AMBER : CYAN},${big ? .8 : .3})`;
+    ctx.lineWidth = (big ? 2 : 1) * dpr;
+    const r0 = R * 1.78, r1 = R * (big ? 1.88 : 1.83);
+    ctx.beginPath();
+    ctx.moveTo(r0 * Math.cos(a), r0 * Math.sin(a));
+    ctx.lineTo(r1 * Math.cos(a), r1 * Math.sin(a));
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // orbiting reticle arcs
+  for (let i = 0; i < 3; i++) {
+    ctx.save(); ctx.translate(cx, cy);
+    ctx.rotate(t * (0.5 + i * 0.3) * (i % 2 ? -1 : 1));
+    ctx.strokeStyle = `rgba(${i === 1 ? AMBER : CYAN},${0.5 + energy * 0.4})`;
+    ctx.lineWidth = 2.2 * dpr;
+    ctx.beginPath(); ctx.arc(0, 0, R * (1.18 + i * 0.13), 0, TAU * (0.16 + 0.1 * i)); ctx.stroke();
+    ctx.restore();
+  }
+
+  // triangular core frame (arc reactor MK)
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(-t * 0.06);
+  ctx.strokeStyle = `rgba(${CYAN},.45)`; ctx.lineWidth = 1.5 * dpr;
+  ctx.beginPath();
+  for (let i = 0; i <= 3; i++) {
+    const a = (i / 3) * TAU - Math.PI / 2;
+    const x = R * 1.02 * Math.cos(a), y = R * 1.02 * Math.sin(a);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke(); ctx.restore();
+
+  // core
+  g = ctx.createRadialGradient(cx, cy, R * 0.05, cx, cy, R);
+  g.addColorStop(0, "rgba(235,252,255,.98)");
+  g.addColorStop(0.4, `rgba(${CYAN},${0.9 + energy * 0.1})`);
+  g.addColorStop(1, "rgba(8,30,60,.95)");
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 0.92, 0, TAU); ctx.fill();
+
+  // waveform ring when speaking
+  if (energy > 0.02) {
+    ctx.strokeStyle = `rgba(255,255,255,${0.3 + energy * 0.5})`;
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath();
+    for (let a = 0; a <= TAU; a += 0.05) {
+      const rr = R * (1.0 + 0.07 * energy * Math.sin(a * 9 + t * 6));
+      const x = cx + rr * Math.cos(a), y = cy + rr * Math.sin(a);
+      a === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.stroke();
+  }
+}
+draw();
+
+/* ---------------------------------------------------------- free local voice (Web Speech API) + cerveau /api/chat */
+let recognition = null, listening = false, thinking = false, speaking = false;
+let history = [];               // {role, content} pour le contexte du cerveau
+let frVoice = null;
+let resumeTimer = null;
+let pendingTranscript = "";
+let lastFinals = "";          // instantane des finales deja comptees     // fragments finaux accumules avant envoi
+let sendTimer = null;
+
+function resumeListening() {
+  clearTimeout(resumeTimer);
+  resumeTimer = setTimeout(() => {
+    logNav("info", "micro relance", { pending: pendingTranscript.slice(0, 120) });
+    if (listening && !speaking && recognition) {
+      try { recognition.start(); } catch (_) {}
+    }
+  }, 600);  // laisse le haut-parleur se taire entièrement
+}
+
+function pickVoice() {
+  const vs = speechSynthesis.getVoices().filter(v => v.lang && v.lang.toLowerCase().startsWith("fr"));
+  frVoice = vs.find(v => /amelie|amélie|audrey|thomas|google|denise|henri/i.test(v.name)) || vs[0] || null;
+}
+if ("speechSynthesis" in window) {
+  pickVoice();
+  speechSynthesis.onvoiceschanged = pickVoice;
+}
+
+function speak(text) {
+  if (!("speechSynthesis" in window) || !text) return;
+  speaking = true;
+  if (recognition) { recognition.onend = null; try { recognition.abort(); } catch (_) {} }  // JARVIS ne s'écoute pas
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "fr-FR";
+  if (frVoice) u.voice = frVoice;
+  u.rate = 1.02; u.pitch = 0.92;          // ton posé, façon majordome
+  u.onstart = () => boost = 0.5;
+  u.onend = u.onerror = () => {
+    boost = 0;
+    speaking = false;
+    if (recognition) recognition.onend = () => { if (listening && !speaking) resumeListening(); };
+    resumeListening();
+  };
+  speechSynthesis.speak(u);
+}
+
+async function start() {
+  if (listening) return stop();
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) {
+    statusEl.innerHTML = `<b style="color:var(--err)">erreur</b> · ce navigateur n'a pas de reconnaissance vocale (utilise Chrome ou Edge)`;
+    return;
+  }
+  recognition = new SR();
+  recognition.lang = "fr-FR";
+  recognition.continuous = true;
+  recognition.interimResults = true;
+
+  recognition.onresult = (e) => {
+    let interim = "";
+    const finals = [];
+    for (const res of e.results) {
+      if (res.isFinal) finals.push(res[0].transcript.trim());
+      else interim += res[0].transcript;
+    }
+    // Deduplication MOT A MOT: Chrome ajoute des espaces et re-emet des
+    // resultats deja vus. On ne garde que les mots really nouveaux.
+    const norm = (x) => x.replace(/\s+/g, " ").trim();
+    const toks = norm(joined) ? norm(joined).split(" ") : [];
+    const ref = norm(lastFinals) ? norm(lastFinals).split(" ") : [];
+    let k = 0;                                  // prefixe commun en mots
+    while (k < toks.length && k < ref.length && toks[k] === ref[k]) k++;
+    let newPart = "";
+    if (toks.length >= ref.length) {
+      newPart = toks.slice(k).join(" ");        // seulement les mots nouveaux
+    } else {
+      // session STT recommencee (liste plus courte): adapter sans reinjecter
+      logNav("info", "stt reset", { old: lastFinals.slice(0, 60), nouveau: joined.slice(0, 60) });
+      lastFinals = joined;
+    }
+    lastFinals = joined;
+    if (newPart) pendingTranscript = (pendingTranscript + " " + newPart).trim();
+    transcriptEl.textContent = (pendingTranscript + " " + interim).trim();
+    if (newPart) logNav("info", "stt fragment", { frag: newPart.slice(0, 60),
+                                                  pending: pendingTranscript.slice(0, 120) });
+    clearTimeout(sendTimer);
+    // N'envoyer qu'apres ~1,5 s de silence: le message part complet.
+    if (pendingTranscript && !thinking) {
+      sendTimer = setTimeout(() => {
+        const msg = pendingTranscript.trim();
+        pendingTranscript = "";
+        // lastFinals: ne PAS reinitialiser — Chrome garde ses resultats,
+        // le reset re-injecterait toute la phrase au mot suivant.
+        if (msg) sendToBrain(msg);
+      }, 1500);
+    }
+  };
+  recognition.onend = () => { if (listening && !speaking) resumeListening(); };
+  recognition.onerror = (e) => {
+    if (e.error === "not-allowed") {
+      statusEl.innerHTML = `<b style="color:var(--err)">micro refusé</b> · autorise le micro puis reclique l'orbe`;
+      listening = false;
+    }
+  };
+
+  listening = true;
+  recognition.start();
+  statusEl.innerHTML = "<b>en ligne</b> · à votre service, monsieur";
+}
+
+function stop() {
+  listening = false; speaking = false;
+  clearTimeout(resumeTimer); clearTimeout(sendTimer);
+  pendingTranscript = ""; lastFinals = "";
+  if (recognition) { recognition.onend = null; recognition.stop(); recognition = null; }
+  speechSynthesis.cancel(); boost = 0;
+  statusEl.innerHTML = "clique l'orbe pour <b>initialiser</b>";
+  transcriptEl.textContent = "";
+}
+orb.addEventListener("click", start);
+
+async function sendToBrain(text) {
+  logNav("info", "envoi cerveau", { msg: text.slice(0, 200) });
+  thinking = true;
+  statusEl.innerHTML = "<b>réflexion…</b>";
+  transcriptEl.textContent = text;
+  try {
+    const res = await askBrain(text, history);
+    for (const c of res.cards || []) addCard(c.title, c.content, c.kind);
+    for (const rp of res.reports || []) showReport(rp);
+    for (const u of res.open_urls || []) {
+      addCard("Lancement", `Ouverture de **${u}** dans ton navigateur…`, "info");
+      window.open(u, "_blank", "noopener");
+    }
+    history.push({ role: "user", content: text }, { role: "assistant", content: res.reply });
+    if (history.length > 24) history = history.slice(-24);
+    transcriptEl.textContent = res.reply;
+    speak(res.reply);
+  } catch (err) {
+    const msg = "Pardonnez-moi monsieur, le cerveau est injoignable. " + String(err.message || err).slice(0, 140);
+    logNav("error", "chat failed: " + String(err.message || err), { text: text.slice(0, 100) });
+    transcriptEl.textContent = msg;
+    speak(msg);
+  } finally {
+    thinking = false;
+    if (listening) statusEl.innerHTML = "<b>en ligne</b> · à votre service, monsieur";
+    // Des fragments sont arrives pendant la reflexion ? On les envoie.
+    if (pendingTranscript && listening) {
+      const rest = pendingTranscript.trim();
+      pendingTranscript = "";
+      // lastFinals intact: la liste Chrome continue, on ne reinjecte pas
+      logNav("info", "flush tampon post-reponse", { msg: rest.slice(0, 120) });
+      setTimeout(() => sendToBrain(rest), 600);
+    }
+  }
+}
+
+async function cancelTask(callId, taskId) {
+  try {
+    const res = await fetch(`${BASE}/api/task/${taskId}/cancel`, { method: "POST" }).then(r => r.json());
+    if (res.cancelled) {
+      const t = await fetch(`${BASE}/api/task/${res.cancelled}`).then(r => r.json());
+      updateTaskCard(t);
+      speak("Très bien monsieur, j'annule.");
+    }
+  } catch (_) {}
+}
+
+async function launchTask(title, prompt) {
+  const res = await fetch(BASE + "/api/task", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title, prompt }),
+  }).then(r => r.json());
+  addTaskCard(res.id, title);
+  pollTask(res.id, title);
+}
+
+async function pollTask(id, title) {
+  const task = await fetch(`${BASE}/api/task/${id}`).then(r => r.json());
+  updateTaskCard(task);
+  if (task.status === "running") return setTimeout(() => pollTask(id, title), 2000);
+  if (task.status === "cancelled") return;
+  const summary = (task.output || "(aucune sortie)").slice(0, 4000);
+  // Le cerveau reçoit le VRAI résultat et le résume lui-même (pas d'improvisation).
+  thinking = true;
+  statusEl.innerHTML = "<b>analyse du résultat…</b>";
+  try {
+    const res = await askBrain(
+      `[SYSTEM] Résultat réel de la tâche "${title}" (${task.status}):\n${summary}\nRésume oralement en une ou deux phrases, fidèlement. Si c'est une analyse de données (chiffres, stats), affiche un tableau de bord avec display_report; sinon un display_card suffit si un visuel aide.`,
+      history);    for (const c of res.cards || []) addCard(c.title, c.content, c.kind);
+    for (const rp of res.reports || []) showReport(rp);
+    history.push({ role: "user", content: `[SYSTEM] Résultat tâche "${title}": ${summary.slice(0, 1500)}` },
+                 { role: "assistant", content: res.reply });
+    if (history.length > 24) history = history.slice(-24);
+    transcriptEl.textContent = res.reply;
+    speak(res.reply);
+  } catch (err) {
+    // repli: lecture brute, sans invention
+    const say = task.status === "done"
+      ? `La tâche ${title} est terminée, monsieur. ${summary.slice(0, 180)}`
+      : `La tâche ${title} a échoué. ${summary.slice(0, 180)}`;
+    logNav("error", "pollTask summary failed: " + String(err.message || err), { id });
+    addCard(title, task.output || "(aucune sortie)", task.status === "done" ? "result" : "warning");
+    speak(say);
+  } finally {
+    thinking = false;
+  }
+}
+
+/* ---------------------------------------------------------- display cards */
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function mdLite(s) {
+  // minimal markdown: **bold**, `code`, "- " bullets
+  let html = esc(s)
+    .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+  const lines = html.split("\n");
+  let out = "", inList = false;
+  for (const l of lines) {
+    if (l.startsWith("- ")) {
+      if (!inList) { out += "<ul>"; inList = true; }
+      out += `<li>${l.slice(2)}</li>`;
+    } else {
+      if (inList) { out += "</ul>"; inList = false; }
+      out += l + "\n";
+    }
+  }
+  if (inList) out += "</ul>";
+  return out.trimEnd();
+}
+
+function addCard(title, content, kind) {
+  const el = document.createElement("div");
+  el.className = `card ${kind}`;
+  el.innerHTML = `<h3><span>${esc(title)}</span><span class="x" title="fermer">✕</span></h3>
+    <div class="body">${mdRender(content)}</div>`;
+  el.querySelector(".x").addEventListener("click", () => el.remove());
+  cardsEl.prepend(el);
+  // keep at most 6 cards
+  while (cardsEl.children.length > 6) cardsEl.lastChild.remove();
+}
+
+/* ---------------------------------------------------------- report dashboard */
+// Series palette validated for dark surfaces (CVD-safe, dataviz checks pass).
+const SERIES_COLORS = ["#1e93c4", "#c47b1e", "#1ea86a"];
+let _apex = null, _grid = null;
+
+function mdRender(text) {
+  if (window.marked && window.DOMPurify) {
+    return DOMPurify.sanitize(marked.parse(text));
+  }
+  return mdLite(text); // offline fallback
+}
+
+function showReport(r) {
+  const rep = document.getElementById("report");
+  document.getElementById("rtitle").textContent = r.title || "Rapport";
+
+  // KPI tiles
+  const kpisEl = document.getElementById("kpis");
+  kpisEl.innerHTML = "";
+  for (const k of (r.kpis || []).slice(0, 4)) {
+    const d = k.delta ? `<div class="d ${String(k.delta).trim().startsWith("-") ? "neg" : ""}">${esc(k.delta)}</div>` : "";
+    kpisEl.insertAdjacentHTML("beforeend",
+      `<div class="kpi"><div class="l">${esc(k.label)}</div><div class="v">${esc(k.value)}</div>${d}</div>`);
+  }
+
+  // Chart (ApexCharts)
+  const chartEl = document.getElementById("rchart");
+  if (_apex) { _apex.destroy(); _apex = null; }
+  chartEl.innerHTML = "";
+  const c = r.chart;
+  if (c && window.ApexCharts && (c.series || []).length) {
+    const donut = c.type === "donut";
+    const nSeries = donut ? (c.categories || []).length : c.series.length;
+    const opts = {
+      chart: { type: c.type || "line", height: 280, background: "transparent",
+               toolbar: { show: false }, foreColor: "#4d7c99",
+               fontFamily: "Rajdhani, sans-serif" },
+      theme: { mode: "dark" },
+      colors: SERIES_COLORS,
+      stroke: { width: 2, curve: "straight" },
+      grid: { borderColor: "rgba(64,220,255,.12)", strokeDashArray: 3 },
+      dataLabels: { enabled: false },
+      legend: { show: nSeries > 1, labels: { colors: "#cfeaff" } },
+      tooltip: { theme: "dark" },
+      series: donut ? c.series[0].data : c.series,
+    };
+    if (donut) opts.labels = c.categories || [];
+    else opts.xaxis = { categories: c.categories || [] };
+    if (c.type === "area") opts.fill = { type: "gradient", gradient: { opacityFrom: .3, opacityTo: .02 } };
+    _apex = new ApexCharts(chartEl, opts);
+    _apex.render();
+  }
+
+  // Table (Grid.js)
+  const tableEl = document.getElementById("rtable");
+  if (_grid) { _grid.destroy(); _grid = null; }
+  tableEl.innerHTML = "";
+  const t = r.table;
+  if (t && window.gridjs && (t.rows || []).length) {
+    _grid = new gridjs.Grid({
+      columns: t.columns || [],
+      data: t.rows,
+      sort: true,
+      search: t.rows.length > 8,
+      pagination: t.rows.length > 12 ? { limit: 10 } : false,
+      style: { table: { "font-family": "Rajdhani, sans-serif" } },
+    });
+    _grid.render(tableEl);
+  }
+
+  // Markdown notes
+  document.getElementById("rmd").innerHTML = r.markdown ? mdRender(r.markdown) : "";
+
+  rep.classList.add("open");
+}
+
+/* ---------------------------------------------------------- task cards */
+function addTaskCard(id, title) {
+  emptyEl && emptyEl.remove();
+  const el = document.createElement("div");
+  el.className = "task"; el.id = `task-${id}`;
+  el.innerHTML = `<div class="t">${esc(title)}</div>
+    <div class="s"><span class="dot"></span><span class="lbl">Claude Code travaille…</span> <span class="chrono">0s</span>
+    <span class="cancel" title="annuler">✕</span></div>
+    <div class="out"></div>`;
+  el.querySelector(".cancel").addEventListener("click", () => cancelTask(null, id));
+  tasksEl.prepend(el);
+  el.dataset.start = Date.now();
+  el._timer = setInterval(() => {
+    el.querySelector(".chrono").textContent = Math.round((Date.now() - el.dataset.start) / 1000) + "s";
+  }, 1000);
+}
+
+function updateTaskCard(task) {
+  const el = document.getElementById(`task-${task.id}`);
+  if (!el) return;
+  if (task.status !== "running") {
+    clearInterval(el._timer);
+    const cls = { done: "done", cancelled: "cancelled" }[task.status] || "error";
+    const lbl = { done: "Terminé", cancelled: "Annulée" }[task.status] || "Erreur";
+    el.classList.add(cls);
+    el.querySelector(".lbl").textContent = lbl;
+    el.querySelector(".out").textContent = (task.output || "").slice(0, 1200);
+    const c = el.querySelector(".cancel"); if (c) c.remove();
+  }
+}
+</script>
+</body>
+</html>

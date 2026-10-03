@@ -1,0 +1,6 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+jarvis.log
+nohup.out
