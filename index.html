@@ -435,6 +435,7 @@ async function start() {
     }
     // Deduplication MOT A MOT: Chrome ajoute des espaces et re-emet des
     // resultats deja vus. On ne garde que les mots really nouveaux.
+    const joined = finals.join(" ");
     const norm = (x) => x.replace(/\s+/g, " ").trim();
     const toks = norm(joined) ? norm(joined).split(" ") : [];
     const ref = norm(lastFinals) ? norm(lastFinals).split(" ") : [];
